@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, Link } from '@tanstack/react-router'
 import { Card, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -20,35 +20,33 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [gisReady, setGisReady] = useState(() => typeof window !== 'undefined' && !!window.google)
+  const googleBoxRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || window.google || document.getElementById('google-gsi')) return
-    const s = document.createElement('script')
-    s.id = 'google-gsi'
-    s.src = 'https://accounts.google.com/gsi/client'
-    s.async = true
-    s.defer = true
-    document.head.appendChild(s)
+    if (!GOOGLE_CLIENT_ID) return
+    if (window.google) {
+      setGisReady(true)
+      return
+    }
+    let s = document.getElementById('google-gsi') as HTMLScriptElement | null
+    if (!s) {
+      s = document.createElement('script')
+      s.id = 'google-gsi'
+      s.src = 'https://accounts.google.com/gsi/client'
+      s.async = true
+      s.defer = true
+      document.head.appendChild(s)
+    }
+    const onLoad = () => setGisReady(true)
+    s.addEventListener('load', onLoad)
+    if ((s as unknown as { loaded?: boolean }).loaded || window.google) setGisReady(true)
+    return () => s?.removeEventListener('load', onLoad)
   }, [])
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      const data = mode === 'login' ? await login(email.trim(), password) : await signup(email.trim(), password, name.trim())
-      saveSession(data.user, data.credits)
-      toast(`Welcome — ${data.credits} credits`)
-      nav({ to: '/' })
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const googleInitRef = (el: HTMLDivElement | null) => {
-    if (!el || !GOOGLE_CLIENT_ID || !window.google) return
+  useEffect(() => {
+    const el = googleBoxRef.current
+    if (!el || !GOOGLE_CLIENT_ID || !gisReady || !window.google) return
     el.innerHTML = ''
     window.google.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
@@ -64,6 +62,22 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
       },
     })
     window.google.accounts.id.renderButton(el, { theme: 'outline', size: 'large', width: 280 })
+  }, [gisReady, nav])
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      const data = mode === 'login' ? await login(email.trim(), password) : await signup(email.trim(), password, name.trim())
+      saveSession(data.user, data.credits)
+      toast(`Welcome — ${data.credits} credits`)
+      nav({ to: '/' })
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -87,7 +101,14 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             </Button>
           </form>
           {GOOGLE_CLIENT_ID ? (
-            <div ref={googleInitRef} className="flex justify-center" />
+            <div className="flex flex-col items-center gap-2">
+              {!gisReady && (
+                <div className="w-[280px] h-[40px] rounded-full bg-zinc-100 animate-pulse flex items-center justify-center text-xs text-zinc-400">
+                  Loading Google sign-in…
+                </div>
+              )}
+              <div ref={googleBoxRef} className="flex justify-center" />
+            </div>
           ) : (
             <p className="text-xs text-zinc-400 text-center">Google sign-in needs ODIFY_GOOGLE_CLIENT_ID — email works now.</p>
           )}
