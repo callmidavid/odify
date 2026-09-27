@@ -11,7 +11,7 @@ declare global {
   interface Window { google?: { accounts: { id: { initialize(o: unknown): void; renderButton(el: HTMLElement, o: unknown): void } } } }
 }
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+const GOOGLE_CLIENT_ID = import.meta.env.ODIFY_GOOGLE_CLIENT_ID || ''
 
 export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const nav = useNavigate()
@@ -89,7 +89,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
           {GOOGLE_CLIENT_ID ? (
             <div ref={googleInitRef} className="flex justify-center" />
           ) : (
-            <p className="text-xs text-zinc-400 text-center">Google sign-in needs VITE_GOOGLE_CLIENT_ID — email works now.</p>
+            <p className="text-xs text-zinc-400 text-center">Google sign-in needs ODIFY_GOOGLE_CLIENT_ID — email works now.</p>
           )}
           <p className="text-sm text-zinc-500 text-center">
             {mode === 'login' ? (

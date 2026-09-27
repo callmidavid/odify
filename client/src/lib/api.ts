@@ -1,4 +1,4 @@
-const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+const BASE = (import.meta.env.ODIFY_API_URL || '').replace(/\/$/, '')
 
 export interface PlaceLeadDTO {
   name: string
