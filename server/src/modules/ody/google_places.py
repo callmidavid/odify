@@ -1,7 +1,10 @@
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 import requests
 from dotenv import load_dotenv
+
+from .odify import find_business_email
 
 load_dotenv()
 
@@ -73,5 +76,17 @@ def search_without_website(niche: str, location: str, max_results: int = 30) -> 
             "email": "",
             "website": "",
         })
+
+    # Best-effort email enrichment (businesses here have no website to scrape).
+    # Threaded: each lead = 1 DDG query + up to 2 page scrapes.
+    def _enrich(lead: dict) -> None:
+        try:
+            lead["email"] = find_business_email(lead.get("name", ""), location)
+        except Exception:
+            lead["email"] = ""
+
+    if results:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(_enrich, results))
 
     return results

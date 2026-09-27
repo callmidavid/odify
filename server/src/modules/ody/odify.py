@@ -32,9 +32,9 @@ def extract_phones(text):
     return list(set(cleaned))
 
 
-def scrape_page(url):
+def scrape_page(url, timeout=15):
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = requests.get(url, headers=HEADERS, timeout=timeout)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         text = soup.get_text(separator=" ", strip=True)
@@ -95,3 +95,39 @@ def search_and_scrape(query, max_results=10):
         time.sleep(1)
 
     return results
+
+
+JUNK_EMAIL_HINTS = ("noreply", "no-reply", "example.", ".invalid", "test@", "sentry", "lorem")
+
+
+def pick_best_email(emails: list[str]) -> str:
+    """First plausible address, skipping obvious junk/crawler artifacts."""
+    for e in emails:
+        low = e.lower()
+        if len(low) > 80:
+            continue
+        if any(h in low for h in JUNK_EMAIL_HINTS):
+            continue
+        if low.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css", ".js")):
+            continue
+        return e
+    return ""
+
+
+def find_business_email(name: str, location: str, max_pages: int = 2) -> str:
+    """Best-effort email for a business with no website: DDG the name, scrape top hits."""
+    if not name:
+        return ""
+    query = f'"{name}" {location} email contact'
+    urls = search_duckduckgo(query, max_results=max_pages)
+    if not urls:
+        urls = search_duckduckgo_fallback(query, max_results=max_pages)
+    for url in urls:
+        try:
+            emails, _ = scrape_page(url, timeout=8)
+        except Exception:
+            continue
+        best = pick_best_email(emails)
+        if best:
+            return best
+    return ""

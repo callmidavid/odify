@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Search, Download, Loader2, AlertCircle, Building2, Phone, MapPin, Check, UserPlus, Copy, ClipboardList } from 'lucide-react'
+import { Search, Download, Loader2, AlertCircle, Building2, Phone, MapPin, Check, UserPlus, Copy, ClipboardList, Mail } from 'lucide-react'
 import { Input } from '../components/ui/input'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
@@ -319,6 +319,7 @@ export function IndexPage() {
                       <TableHead className="w-8">#</TableHead>
                       <TableHead>Business</TableHead>
                       <TableHead>Phone</TableHead>
+                      <TableHead className="hidden md:table-cell">Email</TableHead>
                       <TableHead className="hidden md:table-cell">Address</TableHead>
                       <TableHead className="w-16">Actions</TableHead>
                     </TableRow>
@@ -344,6 +345,16 @@ export function IndexPage() {
                           )}
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
+                          {lead.email ? (
+                            <div className="flex items-center gap-1.5">
+                              <Mail className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                              <span className="text-sm text-zinc-700 truncate max-w-[200px]">{lead.email}</span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-zinc-400">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
                           {lead.address ? (
                             <div className="flex items-center gap-1.5">
                               <MapPin className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
@@ -357,7 +368,7 @@ export function IndexPage() {
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => {
-                                const text = `${lead.name}${lead.phone ? ` — ${lead.phone}` : ''}`
+                                const text = `${lead.name}${lead.phone ? ` — ${lead.phone}` : ''}${lead.email ? ` — ${lead.email}` : ''}`
                                 navigator.clipboard.writeText(text)
                                 toast('Copied to clipboard')
                               }}
