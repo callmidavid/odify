@@ -6,7 +6,9 @@ import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent } from '../components/ui/card'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/table'
-import { searchPlaces, csvUrl, vcardUrl, allVcardsUrl } from '../lib/api'
+import { useNavigate, Link } from '@tanstack/react-router'
+import { searchPlaces, csvUrl, vcardUrl, allVcardsUrl, ApiError } from '../lib/api'
+import { clearSession, useSession } from '../lib/auth'
 import { toast } from './__root'
 import type { PlaceLead } from '../types'
 
@@ -19,9 +21,12 @@ const logs = [
 ]
 
 export function IndexPage() {
+  const nav = useNavigate()
+  const { user, credits, refresh } = useSession()
   const [niche, setNiche] = useState('')
   const [location, setLocation] = useState('')
   const [maxResults, setMaxResults] = useState(30)
+  const [needTopup, setNeedTopup] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -44,21 +49,38 @@ export function IndexPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!niche.trim() || !location.trim()) return
+    if (!user) {
+      nav({ to: '/login' })
+      return
+    }
+    const requested = Math.max(1, Math.min(50, Math.floor(Number(maxResults) || 1)))
+    setMaxResults(requested)
+    setNeedTopup(false)
     setLoading(true)
     setError(null)
     setSessionId(null)
     setLeads([])
     try {
-      const data = await searchPlaces(niche.trim(), location.trim(), maxResults)
+      const data = await searchPlaces(niche.trim(), location.trim(), requested)
       setSessionId(data.session_id)
       setLeads(data.results)
+      refresh()
       if (!data.results.length) {
-        toast('No businesses without websites found — try different terms')
+        toast(`No leads found — ${requested} credits refunded`)
+      } else if (data.credits_refunded) {
+        toast(`Found ${data.results.length} — charged ${data.credits_charged}, refunded ${data.credits_refunded}`)
       } else {
-        toast(`Found ${data.results.length} businesses without websites`)
+        toast(`Found ${data.results.length} businesses without websites (${data.credits_charged} credits)`)
       }
     } catch (err) {
-      setError((err as Error).message)
+      if (err instanceof ApiError && err.status === 402) {
+        setNeedTopup(true)
+        setError(`${err.message} — top up to continue.`)
+      } else if (err instanceof ApiError && err.status === 401) {
+        nav({ to: '/login' })
+      } else {
+        setError((err as Error).message)
+      }
     } finally {
       setLoading(false)
     }
@@ -77,6 +99,27 @@ export function IndexPage() {
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center text-white font-bold text-sm">O</div>
           <span className="font-heading font-semibold text-lg tracking-tight">Odify</span>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          {user ? (
+            <>
+              <span className="px-2.5 py-1 rounded-full bg-primary-subtle border border-primary/20 text-primary font-medium">
+                {credits ?? '…'} credits
+              </span>
+              <Link to="/pricing" className="px-3 py-1.5 rounded-xl bg-primary text-white font-medium">Top up</Link>
+              <button
+                onClick={() => { clearSession(); refresh() }}
+                className="px-3 py-1.5 rounded-xl border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="px-3 py-1.5 rounded-xl border border-zinc-200 text-zinc-700 hover:bg-zinc-50">Log in</Link>
+              <Link to="/signup" className="px-3 py-1.5 rounded-xl bg-primary text-white font-medium">Sign up</Link>
+            </>
+          )}
         </div>
       </nav>
 
@@ -127,9 +170,16 @@ export function IndexPage() {
                       id="maxResults"
                       type="number"
                       value={maxResults}
-                      onChange={e => setMaxResults(Number(e.target.value))}
+                      onChange={e => {
+                        const n = Math.floor(Number(e.target.value))
+                        setMaxResults(Number.isFinite(n) ? Math.max(1, Math.min(50, n)) : 1)
+                      }}
                       max={50}
                     />
+                  </div>
+                  <div className="text-xs text-zinc-500 pb-2.5">
+                    This search costs <span className="font-semibold text-zinc-700">{Math.max(1, Math.min(50, Math.floor(Number(maxResults) || 1)))} credits</span>
+                    <br />Shortfall refunded automatically
                   </div>
                   <Button type="submit" disabled={loading || !niche.trim() || !location.trim()}>
                     {loading ? (
@@ -207,6 +257,11 @@ export function IndexPage() {
                   <div>
                     <p className="text-sm font-medium text-destructive">Search failed</p>
                     <p className="text-xs text-zinc-500 mt-0.5">{error}</p>
+                    {needTopup && (
+                      <Link to="/pricing" className="inline-block mt-2 px-3 py-1.5 rounded-xl bg-primary text-white text-xs font-medium">
+                        Buy credits
+                      </Link>
+                    )}
                   </div>
                 </CardContent>
               </Card>
