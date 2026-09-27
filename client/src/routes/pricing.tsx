@@ -34,7 +34,7 @@ export function PricingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background px-6 py-12 max-w-4xl mx-auto">
+    <div className="min-h-screen bg-background px-4 sm:px-6 py-8 sm:py-12 max-w-4xl mx-auto">
       <div className="text-center mb-8">
         <h1 className="font-heading font-bold text-3xl">Buy credits</h1>
         <p className="text-zinc-500 mt-2">1 lead requested = 1 credit. Shortfalls refunded automatically.</p>
@@ -71,7 +71,7 @@ export function SuccessPage() {
     return () => clearTimeout(t)
   }, [refresh])
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-6">
+    <div className="min-h-screen bg-background flex items-center justify-center px-4 sm:px-6">
       <Card className="max-w-sm w-full">
         <CardContent className="p-6 text-center space-y-3">
           <h1 className="font-heading font-bold text-xl">Payment received</h1>

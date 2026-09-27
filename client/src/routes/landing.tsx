@@ -95,12 +95,12 @@ export function IndexPage() {
       <div className="fixed bottom-[-30vh] right-[-20vw] w-[50vw] h-[50vw] rounded-full bg-accent/5 blur-[100px] pointer-events-none" />
 
       {/* Nav */}
-      <nav className="relative z-10 flex items-center justify-between px-6 py-4 max-w-4xl mx-auto">
+      <nav className="relative z-10 flex items-center justify-between gap-2 flex-wrap px-4 sm:px-6 py-4 max-w-4xl mx-auto">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center text-white font-bold text-sm">O</div>
           <span className="font-heading font-semibold text-lg tracking-tight">Odify</span>
         </div>
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-2 text-xs sm:text-sm flex-wrap">
           {user ? (
             <>
               <span className="px-2.5 py-1 rounded-full bg-primary-subtle border border-primary/20 text-primary font-medium">
@@ -124,17 +124,17 @@ export function IndexPage() {
       </nav>
 
       {/* Hero + Search */}
-      <section className="relative z-10 px-6 pt-16 pb-12 max-w-4xl mx-auto">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center max-w-2xl mx-auto mb-10">
+      <section className="relative z-10 px-4 sm:px-6 pt-10 sm:pt-16 pb-8 sm:pb-12 max-w-4xl mx-auto">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-subtle border border-primary/20 text-primary text-xs font-medium mb-5">
             <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
             Google Places Lead Finder
           </div>
-          <h1 className="text-4xl md:text-5xl font-heading font-bold leading-tight tracking-tight">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-heading font-bold leading-tight tracking-tight">
             Find businesses that<br />
             <span className="gradient-text">need a website</span>
           </h1>
-          <p className="mt-4 text-zinc-500 text-lg leading-relaxed">
+          <p className="mt-4 text-zinc-500 text-base sm:text-lg leading-relaxed">
             Search any niche and location to discover businesses on Google without a website.
             Perfect for web designers, agencies, and freelancers.
           </p>
@@ -177,11 +177,11 @@ export function IndexPage() {
                       max={50}
                     />
                   </div>
-                  <div className="text-xs text-zinc-500 pb-2.5">
+                  <div className="text-xs text-zinc-500 pb-2.5 basis-full sm:basis-auto">
                     This search costs <span className="font-semibold text-zinc-700">{Math.max(1, Math.min(50, Math.floor(Number(maxResults) || 1)))} credits</span>
                     <br />Shortfall refunded automatically
                   </div>
-                  <Button type="submit" disabled={loading || !niche.trim() || !location.trim()}>
+                  <Button type="submit" disabled={loading || !niche.trim() || !location.trim()} className="flex-1 sm:flex-none justify-center">
                     {loading ? (
                       <><Loader2 className="w-4 h-4 animate-spin" /> Searching...</>
                     ) : (
@@ -199,7 +199,7 @@ export function IndexPage() {
       </section>
 
       {/* Loading State */}
-      <section className="relative z-10 px-6 max-w-4xl mx-auto">
+      <section className="relative z-10 px-4 sm:px-6 max-w-4xl mx-auto">
         <AnimatePresence>
           {loading && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
@@ -247,7 +247,7 @@ export function IndexPage() {
       </section>
 
       {/* Error State */}
-      <section className="relative z-10 px-6 max-w-4xl mx-auto mt-4">
+      <section className="relative z-10 px-4 sm:px-6 max-w-4xl mx-auto mt-4">
         <AnimatePresence>
           {error && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -271,7 +271,7 @@ export function IndexPage() {
       </section>
 
       {/* Results */}
-      <section className="relative z-10 px-6 pb-16 max-w-4xl mx-auto">
+      <section className="relative z-10 px-4 sm:px-6 pb-16 max-w-4xl mx-auto">
         <AnimatePresence>
           {leads.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 mt-6">
@@ -287,32 +287,50 @@ export function IndexPage() {
                   <a
                     href={csvUrl(sessionId)}
                     download
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl bg-primary text-white hover:bg-primary-hover transition-all glow-primary"
+                    className="inline-flex flex-1 sm:flex-none justify-center items-center gap-2 px-4 py-2.5 sm:py-2 text-sm font-medium rounded-xl bg-primary text-white hover:bg-primary-hover transition-all glow-primary"
                   >
                     <Download className="w-4 h-4" /> CSV
                   </a>
                   <a
                     href={allVcardsUrl(sessionId)}
                     download
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl bg-white text-zinc-700 hover:bg-zinc-50 border border-zinc-200 transition-all"
+                    className="inline-flex flex-1 sm:flex-none justify-center items-center gap-2 px-4 py-2.5 sm:py-2 text-sm font-medium rounded-xl bg-white text-zinc-700 hover:bg-zinc-50 border border-zinc-200 transition-all"
                   >
                     <Download className="w-4 h-4" /> All vCards
                   </a>
                   <button
                     onClick={() => {
-                      const phones = leads.map(l => l.phone).filter(Boolean).join('\n')
-                      navigator.clipboard.writeText(phones)
+                      const phones = leads.map(l => l.phone).filter(Boolean)
+                      if (!phones.length) {
+                        toast('No phone numbers in these results')
+                        return
+                      }
+                      navigator.clipboard.writeText(phones.join('\n'))
                       toast('Phone numbers copied to clipboard')
                     }}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl bg-white text-zinc-700 hover:bg-zinc-50 border border-zinc-200 transition-all"
+                    className="inline-flex flex-1 sm:flex-none justify-center items-center gap-2 px-4 py-2.5 sm:py-2 text-sm font-medium rounded-xl bg-white text-zinc-700 hover:bg-zinc-50 border border-zinc-200 transition-all"
                   >
                     <ClipboardList className="w-4 h-4" /> Copy All Phones
+                  </button>
+                  <button
+                    onClick={() => {
+                      const emails = leads.map(l => l.email).filter(Boolean)
+                      if (!emails.length) {
+                        toast('No emails in these results')
+                        return
+                      }
+                      navigator.clipboard.writeText(emails.join('\n'))
+                      toast('Emails copied to clipboard')
+                    }}
+                    className="inline-flex flex-1 sm:flex-none justify-center items-center gap-2 px-4 py-2.5 sm:py-2 text-sm font-medium rounded-xl bg-white text-zinc-700 hover:bg-zinc-50 border border-zinc-200 transition-all"
+                  >
+                    <Mail className="w-4 h-4" /> Copy All Emails
                   </button>
                 </div>
               )}
 
-              {/* Table */}
-              <div className="rounded-2xl border border-zinc-200 overflow-hidden bg-white shadow-sm">
+              {/* Table — desktop */}
+              <div className="hidden md:block rounded-2xl border border-zinc-200 overflow-hidden bg-white shadow-sm">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -394,13 +412,71 @@ export function IndexPage() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Cards — mobile */}
+              <div className="md:hidden space-y-3">
+                {leads.map((lead, i) => (
+                  <Card key={i}>
+                    <CardContent className="p-4 space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-zinc-400 font-mono text-xs shrink-0">{i + 1}</span>
+                          <Building2 className="w-4 h-4 text-zinc-400 shrink-0" />
+                          <span className="font-medium text-zinc-900 truncate">{lead.name || '—'}</span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => {
+                              const text = `${lead.name}${lead.phone ? ` — ${lead.phone}` : ''}${lead.email ? ` — ${lead.email}` : ''}`
+                              navigator.clipboard.writeText(text)
+                              toast('Copied to clipboard')
+                            }}
+                            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-all"
+                            title="Copy"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          {sessionId && (
+                            <a
+                              href={vcardUrl(sessionId, i)}
+                              download
+                              className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-all"
+                              title="Save to Contact"
+                            >
+                              <UserPlus className="w-4 h-4" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                      {lead.phone && (
+                        <a href={`tel:${lead.phone.replace(/\s/g, '')}`} className="flex items-center gap-2 text-sm text-zinc-700">
+                          <Phone className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                          <span className="truncate">{lead.phone}</span>
+                        </a>
+                      )}
+                      {lead.email && (
+                        <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-sm text-zinc-700">
+                          <Mail className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                          <span className="truncate">{lead.email}</span>
+                        </a>
+                      )}
+                      {lead.address && (
+                        <div className="flex items-center gap-2 text-sm text-zinc-600">
+                          <MapPin className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                          <span className="line-clamp-2">{lead.address}</span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </section>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-zinc-200/50 px-6 py-10">
+      <footer className="relative z-10 border-t border-zinc-200/50 px-4 sm:px-6 py-10">
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-sm text-zinc-400">
             <div className="w-6 h-6 rounded-md gradient-primary flex items-center justify-center text-white font-bold text-xs">O</div>

@@ -67,7 +67,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-6">
+    <div className="min-h-screen bg-background flex items-center justify-center px-4 sm:px-6">
       <Card className="w-full max-w-sm">
         <CardContent className="p-6 space-y-4">
           <div className="text-center">
