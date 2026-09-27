@@ -1,75 +1,78 @@
-"""SQLite persistence for auth, credits, payments. Stdlib only."""
+"""Postgres (Neon) persistence for auth, credits, payments. No SQLite fallback."""
 import os
-import sqlite3
 import time
 import uuid
 
-DB_PATH = os.getenv("ODIFY_DB_PATH", os.path.join(os.path.dirname(__file__), "..", "..", "..", "odify.db"))
-DB_PATH = os.path.abspath(DB_PATH)
+import psycopg
+from psycopg.rows import dict_row
 
 SIGNUP_BONUS = int(os.getenv("SIGNUP_BONUS_CREDITS", "10"))
 
 
+def _database_url() -> str:
+    url = os.getenv("DATABASE_URL", "")
+    if not url:
+        raise RuntimeError("DATABASE_URL not set — run `neon deploy` or export it (see .env.local)")
+    return url
+
+
 def _connect():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg.connect(_database_url(), row_factory=dict_row)
 
 
 def init_db():
-    conn = _connect()
-    cur = conn.cursor()
-    cur.executescript("""
-    CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT UNIQUE NOT NULL,
-        name TEXT DEFAULT '',
-        password_hash TEXT DEFAULT '',
-        google_sub TEXT UNIQUE,
-        created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS wallets (
-        user_id TEXT PRIMARY KEY REFERENCES users(id),
-        balance INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS ledger (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL REFERENCES users(id),
-        delta INTEGER NOT NULL,
-        reason TEXT NOT NULL,
-        ref TEXT DEFAULT '',
-        balance_after INTEGER NOT NULL,
-        created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS payments (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES users(id),
-        checkout_id TEXT DEFAULT '',
-        amount TEXT NOT NULL,
-        currency TEXT NOT NULL,
-        credits INTEGER NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS webhook_events (
-        event_id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS searches (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL REFERENCES users(id),
-        niche TEXT NOT NULL,
-        location TEXT NOT NULL,
-        requested INTEGER NOT NULL,
-        returned INTEGER NOT NULL,
-        charged INTEGER NOT NULL,
-        refunded INTEGER NOT NULL,
-        created_at TEXT NOT NULL
-    );
-    """)
-    conn.commit()
-    conn.close()
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                name TEXT DEFAULT '',
+                password_hash TEXT DEFAULT '',
+                google_sub TEXT UNIQUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE TABLE IF NOT EXISTS wallets (
+                user_id TEXT PRIMARY KEY REFERENCES users(id),
+                balance INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS ledger (
+                id SERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id),
+                delta INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                ref TEXT DEFAULT '',
+                balance_after INTEGER NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE TABLE IF NOT EXISTS payments (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id),
+                checkout_id TEXT DEFAULT '',
+                amount TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                credits INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                event_id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE TABLE IF NOT EXISTS searches (
+                id SERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id),
+                niche TEXT NOT NULL,
+                location TEXT NOT NULL,
+                requested INTEGER NOT NULL,
+                returned INTEGER NOT NULL,
+                charged INTEGER NOT NULL,
+                refunded INTEGER NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            """)
+        conn.commit()
 
 
 def now_iso():
@@ -80,28 +83,80 @@ def new_id(prefix=""):
     return f"{prefix}{uuid.uuid4().hex[:16]}"
 
 
+# ---- users ----
+
+def find_user_by_email(email: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE email=%s", (email.strip().lower(),))
+            return cur.fetchone()
+
+
+def find_user_by_id(uid: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE id=%s", (uid,))
+            return cur.fetchone()
+
+
+def find_user_by_google_sub(sub: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE google_sub=%s", (sub,))
+            return cur.fetchone()
+
+
+def create_user(email: str, name: str, password_hash: str, google_sub: str | None) -> dict:
+    uid = new_id("u_")
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (id, email, name, password_hash, google_sub) VALUES (%s,%s,%s,%s,%s)"
+                " RETURNING *",
+                (uid, email.strip().lower(), name, password_hash, google_sub),
+            )
+            user = cur.fetchone()
+            cur.execute("INSERT INTO wallets (user_id, balance) VALUES (%s, 0) ON CONFLICT DO NOTHING", (uid,))
+        conn.commit()
+    if SIGNUP_BONUS > 0:
+        try:
+            add_credits(uid, SIGNUP_BONUS, "signup_bonus")
+        except Exception:
+            pass
+    return dict(user)
+
+
+def link_google_sub(uid: str, sub: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE users SET google_sub=%s WHERE id=%s", (sub, uid))
+        conn.commit()
+
+
+# ---- credits (atomic, row-locked) ----
+
 def get_balance(user_id: str) -> int:
-    conn = _connect()
-    try:
-        row = conn.execute("SELECT balance FROM wallets WHERE user_id=?", (user_id,)).fetchone()
-        return int(row["balance"]) if row else 0
-    finally:
-        conn.close()
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT balance FROM wallets WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+            return int(row["balance"]) if row else 0
 
 
-def _set_balance_ledger(conn, user_id: str, delta: int, reason: str, ref: str = "") -> int:
-    row = conn.execute("SELECT balance FROM wallets WHERE user_id=?", (user_id,)).fetchone()
+def _apply_delta(cur, user_id: str, delta: int, reason: str, ref: str = "") -> int:
+    cur.execute("SELECT balance FROM wallets WHERE user_id=%s FOR UPDATE", (user_id,))
+    row = cur.fetchone()
     bal = int(row["balance"]) if row else 0
     new_bal = bal + delta
     if new_bal < 0:
         raise ValueError("insufficient_credits")
     if row:
-        conn.execute("UPDATE wallets SET balance=? WHERE user_id=?", (new_bal, user_id))
+        cur.execute("UPDATE wallets SET balance=%s WHERE user_id=%s", (new_bal, user_id))
     else:
-        conn.execute("INSERT INTO wallets (user_id, balance) VALUES (?, ?)", (user_id, new_bal))
-    conn.execute(
-        "INSERT INTO ledger (user_id, delta, reason, ref, balance_after, created_at) VALUES (?,?,?,?,?,?)",
-        (user_id, delta, reason, ref, new_bal, now_iso()),
+        cur.execute("INSERT INTO wallets (user_id, balance) VALUES (%s, %s)", (user_id, new_bal))
+    cur.execute(
+        "INSERT INTO ledger (user_id, delta, reason, ref, balance_after) VALUES (%s,%s,%s,%s,%s)",
+        (user_id, delta, reason, ref, new_bal),
     )
     return new_bal
 
@@ -109,37 +164,107 @@ def _set_balance_ledger(conn, user_id: str, delta: int, reason: str, ref: str = 
 def add_credits(user_id: str, amount: int, reason: str, ref: str = "") -> int:
     if amount <= 0:
         raise ValueError("amount must be positive")
-    conn = _connect()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        bal = _set_balance_ledger(conn, user_id, amount, reason, ref)
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            bal = _apply_delta(cur, user_id, amount, reason, ref)
         conn.commit()
         return bal
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
 
 def charge_upfront(user_id: str, requested: int, ref: str = "") -> int:
     """Deduct `requested` credits atomically. Returns new balance. Raises ValueError on insufficient."""
     if requested <= 0:
         raise ValueError("requested must be positive")
-    conn = _connect()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        bal = _set_balance_ledger(conn, user_id, -requested, "search_charge", ref)
-        conn.commit()
-        return bal
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    with _connect() as conn:
+        try:
+            with conn.cursor() as cur:
+                bal = _apply_delta(cur, user_id, -requested, "search_charge", ref)
+            conn.commit()
+            return bal
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def refund_shortfall(user_id: str, refund: int, ref: str = "") -> int | None:
     if refund <= 0:
         return None
     return add_credits(user_id, refund, "search_refund_shortfall", ref)
+
+
+def list_ledger(user_id: str, limit: int = 50) -> list[dict]:
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT delta, reason, ref, balance_after, created_at FROM ledger"
+                " WHERE user_id=%s ORDER BY id DESC LIMIT %s",
+                (user_id, limit),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+# ---- payments / webhooks / searches ----
+
+def insert_payment(pid: str, user_id: str, amount: str, currency: str, credits: int):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO payments (id, user_id, amount, currency, credits, status)"
+                " VALUES (%s,%s,%s,%s,%s,'pending')",
+                (pid, user_id, amount, currency, credits),
+            )
+        conn.commit()
+
+
+def set_payment_checkout(pid: str, checkout_id: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE payments SET checkout_id=%s WHERE id=%s", (checkout_id, pid))
+        conn.commit()
+
+
+def find_payment_by_checkout(checkout_id: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM payments WHERE checkout_id=%s", (checkout_id,))
+            return cur.fetchone()
+
+
+def find_payment(pid: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM payments WHERE id=%s", (pid,))
+            return cur.fetchone()
+
+
+def mark_payment_paid(pid: str):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE payments SET status='paid' WHERE id=%s", (pid,))
+        conn.commit()
+
+
+def insert_webhook_event(event_id: str, etype: str) -> bool:
+    """Returns False if already seen (deduped)."""
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO webhook_events (event_id, type) VALUES (%s,%s) ON CONFLICT DO NOTHING"
+                " RETURNING event_id",
+                (event_id, etype),
+            )
+            seen = cur.fetchone() is None
+        conn.commit()
+        return not seen
+
+
+def record_search(user_id: str, niche: str, location: str, requested: int, returned: int,
+                  charged: int, refunded: int):
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO searches (user_id, niche, location, requested, returned, charged, refunded)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (user_id, niche, location, requested, returned, charged, refunded),
+            )
+        conn.commit()

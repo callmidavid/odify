@@ -53,32 +53,15 @@ def verify_google_id_token(id_token: str) -> dict:
 
 
 def get_or_create_user(email: str, name: str = "", password_hash: str = "", google_sub: str | None = None) -> dict:
-    conn = db._connect()
-    try:
-        email = email.strip().lower()
-        row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        if row:
-            if google_sub and not row["google_sub"]:
-                conn.execute("UPDATE users SET google_sub=? WHERE id=?", (google_sub, row["id"]))
-                conn.commit()
-                row = conn.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()
-            return dict(row)
-        if google_sub:
-            grow = conn.execute("SELECT * FROM users WHERE google_sub=?", (google_sub,)).fetchone()
-            if grow:
-                return dict(grow)
-        uid = db.new_id("u_")
-        conn.execute(
-            "INSERT INTO users (id, email, name, password_hash, google_sub, created_at) VALUES (?,?,?,?,?,?)",
-            (uid, email, name, password_hash, google_sub, db.now_iso()),
-        )
-        conn.execute("INSERT OR IGNORE INTO wallets (user_id, balance) VALUES (?, 0)", (uid,))
-        conn.commit()
-        if db.SIGNUP_BONUS > 0:
-            try:
-                db.add_credits(uid, db.SIGNUP_BONUS, "signup_bonus")
-            except Exception:
-                pass
-        return dict(conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone())
-    finally:
-        conn.close()
+    email = email.strip().lower()
+    row = db.find_user_by_email(email)
+    if row:
+        if google_sub and not row["google_sub"]:
+            db.link_google_sub(row["id"], google_sub)
+            row = db.find_user_by_id(row["id"])
+        return dict(row)
+    if google_sub:
+        grow = db.find_user_by_google_sub(google_sub)
+        if grow:
+            return dict(grow)
+    return db.create_user(email, name, password_hash, google_sub)

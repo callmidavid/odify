@@ -1,6 +1,7 @@
 venv/
 __pycache__/
 *.pyc
+*.db
 .env
 output/*.csv
 client/node_modules/
@@ -8,3 +9,6 @@ server/venv/
 server/__pycache__/
 server/.env
 server/output/*.csv
+.neon
+node_modules/
+.env.local

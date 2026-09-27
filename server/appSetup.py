@@ -88,13 +88,8 @@ def signup(body: SignupBody):
     email = body.email.strip().lower()
     if "@" not in email or len(body.password) < 6:
         return JSONResponse({"detail": "Invalid email or password (min 6 chars)"}, status_code=400)
-    conn = billing_db._connect()
-    try:
-        exists = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
-        if exists:
-            return JSONResponse({"detail": "Email already registered — log in"}, status_code=400)
-    finally:
-        conn.close()
+    if billing_db.find_user_by_email(email):
+        return JSONResponse({"detail": "Email already registered — log in"}, status_code=400)
     user = billing_auth.get_or_create_user(email, body.name, billing_auth.hash_password(body.password))
     token = billing_auth.create_token(user["id"], user["email"])
     return {"access_token": token, "user": {"id": user["id"], "email": user["email"], "name": user.get("name", "")},
@@ -104,14 +99,10 @@ def signup(body: SignupBody):
 @buildApp.post("/auth/login")
 def login(body: LoginBody):
     email = body.email.strip().lower()
-    conn = billing_db._connect()
-    try:
-        row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        if not row or not row["password_hash"] or not billing_auth.verify_password(body.password, row["password_hash"]):
-            return JSONResponse({"detail": "Invalid email or password"}, status_code=401)
-        user = dict(row)
-    finally:
-        conn.close()
+    row = billing_db.find_user_by_email(email)
+    if not row or not row["password_hash"] or not billing_auth.verify_password(body.password, row["password_hash"]):
+        return JSONResponse({"detail": "Invalid email or password"}, status_code=401)
+    user = dict(row)
     token = billing_auth.create_token(user["id"], user["email"])
     return {"access_token": token, "user": {"id": user["id"], "email": user["email"], "name": user.get("name", "")},
             "credits": billing_db.get_balance(user["id"])}
@@ -142,15 +133,7 @@ def my_history(authorization: str | None = Header(default=None, alias="Authoriza
     claims = _current_user(authorization)
     if not claims.get("sub"):
         return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-    conn = billing_db._connect()
-    try:
-        rows = conn.execute(
-            "SELECT delta, reason, ref, balance_after, created_at FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 50",
-            (claims["sub"],),
-        ).fetchall()
-        return {"history": [dict(r) for r in rows]}
-    finally:
-        conn.close()
+    return {"history": billing_db.list_ledger(claims["sub"])}
 
 
 # ---- Billing (Bachs) ----
@@ -164,15 +147,7 @@ def billing_checkout(body: CheckoutBody, authorization: str | None = Header(defa
     if not pack:
         return JSONResponse({"detail": "Unknown pack"}, status_code=400)
     payment_id = billing_db.new_id("pay_")
-    conn = billing_db._connect()
-    try:
-        conn.execute(
-            "INSERT INTO payments (id, user_id, amount, currency, credits, status, created_at) VALUES (?,?,?,?,?,?,?)",
-            (payment_id, claims["sub"], pack["amount"], pack["currency"], pack["credits"], "pending", billing_db.now_iso()),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    billing_db.insert_payment(payment_id, claims["sub"], pack["amount"], pack["currency"], pack["credits"])
     try:
         session = bachs_lib.create_checkout(
             customer_email=claims.get("email", ""),
@@ -184,12 +159,7 @@ def billing_checkout(body: CheckoutBody, authorization: str | None = Header(defa
         )
     except Exception as e:
         return JSONResponse({"detail": f"Checkout failed: {e}"}, status_code=502)
-    conn = billing_db._connect()
-    try:
-        conn.execute("UPDATE payments SET checkout_id=? WHERE id=?", (session.get("checkout_id", ""), payment_id))
-        conn.commit()
-    finally:
-        conn.close()
+    billing_db.set_payment_checkout(payment_id, session.get("checkout_id", ""))
     return {"checkout_url": session.get("checkout_url"), "checkout_id": session.get("checkout_id"),
             "payment_id": payment_id}
 
@@ -217,37 +187,24 @@ async def billing_webhook(request: Request):
     eid = event.get("id", "")
     data = event.get("data", {}) or {}
     if eid:
-        conn = billing_db._connect()
-        try:
-            exists = conn.execute("SELECT event_id FROM webhook_events WHERE event_id=?", (eid,)).fetchone()
-            if exists:
-                return {"ok": True, "deduped": True}
-            conn.execute("INSERT INTO webhook_events (event_id, type, created_at) VALUES (?,?,?)",
-                         (eid, etype, billing_db.now_iso()))
-            conn.commit()
-        finally:
-            conn.close()
+        if not billing_db.insert_webhook_event(eid, etype):
+            return {"ok": True, "deduped": True}
     if etype == "collection.succeeded":
         checkout_id = data.get("checkout_id", "")
-        conn = billing_db._connect()
-        try:
-            pay = None
-            if checkout_id:
-                pay = conn.execute("SELECT * FROM payments WHERE checkout_id=?", (checkout_id,)).fetchone()
-            if not pay:
-                # fallback: match by reference == payment id if Bachs echoes it
-                ref = data.get("reference", "")
-                if ref:
-                    pay = conn.execute("SELECT * FROM payments WHERE id=?", (ref,)).fetchone()
-            if pay and pay["status"] != "paid":
-                conn.execute("UPDATE payments SET status='paid' WHERE id=?", (pay["id"],))
-                conn.commit()
-                try:
-                    billing_db.add_credits(pay["user_id"], int(pay["credits"]), "topup_bachs", pay["id"])
-                except Exception:
-                    pass
-        finally:
-            conn.close()
+        pay = None
+        if checkout_id:
+            pay = billing_db.find_payment_by_checkout(checkout_id)
+        if not pay:
+            # fallback: match by reference == payment id if Bachs echoes it
+            ref = data.get("reference", "")
+            if ref:
+                pay = billing_db.find_payment(ref)
+        if pay and pay["status"] != "paid":
+            billing_db.mark_payment_paid(pay["id"])
+            try:
+                billing_db.add_credits(pay["user_id"], int(pay["credits"]), "topup_bachs", pay["id"])
+            except Exception:
+                pass
     return {"ok": True}
 
 
@@ -312,16 +269,7 @@ def search_places(
     if refunded:
         billing_db.refund_shortfall(user_id, refunded, ref=session_id)
     balance = billing_db.get_balance(user_id)
-    conn = billing_db._connect()
-    try:
-        conn.execute(
-            "INSERT INTO searches (user_id, niche, location, requested, returned, charged, refunded, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?)",
-            (user_id, niche, location, requested, returned, requested, refunded, billing_db.now_iso()),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    billing_db.record_search(user_id, niche, location, requested, returned, requested, refunded)
     return {
         "session_id": session_id,
         "results": data,
