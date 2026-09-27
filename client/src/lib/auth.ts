@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getCredits, getToken, logout as apiLogout, type AuthUser } from './api'
+import { ApiError, getCredits, getToken, logout as apiLogout, type AuthUser } from './api'
 
 export interface Session { user: AuthUser | null; credits: number | null }
 
@@ -36,10 +36,14 @@ export function useSession() {
     try {
       const { credits } = await getCredits()
       setSession({ user, credits })
-    } catch {
-      // token invalid — drop session
-      clearSession()
-      setSession({ user: null, credits: null })
+    } catch (err) {
+      // Only drop the session when the backend rejects the token.
+      // Network blips / cold starts / 5xx must NOT log the user out.
+      if (err instanceof ApiError && err.status === 401) {
+        clearSession()
+        setSession({ user: null, credits: null })
+      }
+      // otherwise: keep existing session (user stays logged in)
     }
   }, [])
 
