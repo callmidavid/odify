@@ -10,8 +10,9 @@ BACHS_API_KEY = os.getenv("BACHS_API_KEY", "")
 
 # Credit packs sold (NGN). 1 credit == 1 lead requested (Option A).
 PACKS = {
-    "starter_200": {"credits": 200, "amount": "2000.00", "currency": "NGN", "label": "200 credits"},
-    "growth_600": {"credits": 600, "amount": "5000.00", "currency": "NGN", "label": "600 credits"},
+    "trial_150": {"credits": 150, "amount": "1000.00", "currency": "NGN", "label": "150 credits"},
+    "starter_250": {"credits": 250, "amount": "2000.00", "currency": "NGN", "label": "250 credits"},
+    "growth_650": {"credits": 650, "amount": "5000.00", "currency": "NGN", "label": "650 credits"},
 }
 
 

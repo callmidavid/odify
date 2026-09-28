@@ -40,7 +40,7 @@ export function PricingPage() {
         <p className="text-zinc-500 mt-2">1 lead requested = 1 credit. Shortfalls refunded automatically.</p>
         {user && <p className="text-sm mt-2">Balance: <span className="font-semibold text-primary">{credits ?? '…'} credits</span></p>}
       </div>
-      <div className="grid md:grid-cols-2 gap-4">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {Object.entries(packs).map(([id, p]) => (
           <Card key={id}>
             <CardContent className="p-6 space-y-3">
