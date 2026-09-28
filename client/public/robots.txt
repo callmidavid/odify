@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://odify.vercel.app/sitemap.xml
+Sitemap: https://odify.daviduchenna.me/sitemap.xml
