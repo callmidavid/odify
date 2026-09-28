@@ -20,8 +20,10 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [googleBusy, setGoogleBusy] = useState(false)
   const [gisReady, setGisReady] = useState(() => typeof window !== 'undefined' && !!window.google)
   const googleBoxRef = useRef<HTMLDivElement | null>(null)
+  const googleBusyRef = useRef(false)
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return
@@ -51,6 +53,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
     window.google.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
       callback: async (resp: { credential: string }) => {
+        if (googleBusyRef.current) return
+        googleBusyRef.current = true
+        setGoogleBusy(true)
         try {
           const data = await googleLogin(resp.credential)
           saveSession(data.user, data.credits)
@@ -58,6 +63,8 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
           nav({ to: '/' })
         } catch (err) {
           setError((err as Error).message)
+          googleBusyRef.current = false
+          setGoogleBusy(false)
         }
       },
     })
@@ -101,7 +108,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             </Button>
           </form>
           {GOOGLE_CLIENT_ID ? (
-            <div className="flex flex-col items-center gap-2">
+            <div className={`flex flex-col items-center gap-2 transition-opacity ${googleBusy ? 'pointer-events-none opacity-60' : ''}`}>
               {!gisReady && (
                 <div className="w-[280px] h-[40px] rounded-full bg-zinc-100 animate-pulse flex items-center justify-center text-xs text-zinc-400">
                   Loading Google sign-in…

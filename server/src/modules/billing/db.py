@@ -107,30 +107,69 @@ def find_user_by_google_sub(sub: str):
 
 
 def create_user(email: str, name: str, password_hash: str, google_sub: str | None) -> dict:
+    email = email.strip().lower()
     uid = new_id("u_")
     with _connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO users (id, email, name, password_hash, google_sub) VALUES (%s,%s,%s,%s,%s)"
-                " RETURNING *",
-                (uid, email.strip().lower(), name, password_hash, google_sub),
-            )
-            user = cur.fetchone()
-            cur.execute("INSERT INTO wallets (user_id, balance) VALUES (%s, 0) ON CONFLICT DO NOTHING", (uid,))
+            try:
+                cur.execute(
+                    "INSERT INTO users (id, email, name, password_hash, google_sub)"
+                    " VALUES (%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (email) DO UPDATE SET"
+                    " name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END,"
+                    " google_sub = COALESCE(users.google_sub, EXCLUDED.google_sub)"
+                    " RETURNING *",
+                    (uid, email, name, password_hash, google_sub),
+                )
+                user = cur.fetchone()
+                cur.execute("INSERT INTO wallets (user_id, balance) VALUES (%s, 0) ON CONFLICT DO NOTHING",
+                            (user["id"],))
+            except psycopg.errors.UniqueViolation:
+                # Lost a concurrent insert race (or google_sub clash) — use the winner.
+                conn.rollback()
+                with conn.cursor() as cur2:
+                    cur2.execute("SELECT * FROM users WHERE email=%s", (email,))
+                    user = cur2.fetchone()
+                    if user and google_sub and not user["google_sub"]:
+                        try:
+                            cur2.execute("UPDATE users SET google_sub=%s WHERE id=%s",
+                                         (google_sub, user["id"]))
+                            user = dict(user)
+                            user["google_sub"] = google_sub
+                        except psycopg.errors.UniqueViolation:
+                            pass  # sub linked elsewhere; email identity wins
+                    cur2.execute("INSERT INTO wallets (user_id, balance) VALUES (%s, 0) ON CONFLICT DO NOTHING",
+                                 (user["id"],))
         conn.commit()
-    if SIGNUP_BONUS > 0:
-        try:
-            add_credits(uid, SIGNUP_BONUS, "signup_bonus")
-        except Exception:
-            pass
+    award_signup_bonus(user["id"])
     return dict(user)
 
 
+def award_signup_bonus(user_id: str):
+    """Atomic + idempotent: advisory lock serializes concurrent awards per user."""
+    if SIGNUP_BONUS <= 0:
+        return
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"bonus:{user_id}",))
+                cur.execute("SELECT 1 FROM ledger WHERE user_id=%s AND reason='signup_bonus'", (user_id,))
+                if cur.fetchone():
+                    return
+                _apply_delta(cur, user_id, SIGNUP_BONUS, "signup_bonus")
+            conn.commit()
+    except Exception:
+        pass
+
+
 def link_google_sub(uid: str, sub: str):
-    with _connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE users SET google_sub=%s WHERE id=%s", (sub, uid))
-        conn.commit()
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET google_sub=%s WHERE id=%s AND google_sub IS NULL", (sub, uid))
+            conn.commit()
+    except psycopg.errors.UniqueViolation:
+        pass  # sub already linked to another row; email identity wins
 
 
 # ---- credits (atomic, row-locked) ----
