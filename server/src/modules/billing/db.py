@@ -6,7 +6,7 @@ import uuid
 import psycopg
 from psycopg.rows import dict_row
 
-SIGNUP_BONUS = int(os.getenv("SIGNUP_BONUS_CREDITS", "10"))
+SIGNUP_BONUS = int(os.getenv("SIGNUP_BONUS_CREDITS", "5"))
 
 
 def _database_url() -> str:

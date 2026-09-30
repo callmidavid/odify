@@ -94,7 +94,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
           <div className="text-center">
             <div className="w-8 h-8 rounded-lg gradient-primary inline-flex items-center justify-center text-white font-bold text-sm">O</div>
             <h1 className="font-heading font-bold text-xl mt-2">{mode === 'login' ? 'Log in' : 'Create account'}</h1>
-            <p className="text-sm text-zinc-500 mt-1">New accounts start with 10 free credits. 1 lead requested = 1 credit.</p>
+            <p className="text-sm text-zinc-500 mt-1">New accounts start with 5 free credits. 1 lead requested = 1 credit.</p>
           </div>
           <form onSubmit={submit} className="space-y-3">
             {mode === 'signup' && (
